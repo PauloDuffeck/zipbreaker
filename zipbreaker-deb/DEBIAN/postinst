@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -e
+
+pip3 install pyzipper
+pip3 install termcolor
+pip3 install pynput
+pip3 install rarfile
+chmod +x /usr/bin/zipbreaker
+
+exit 0

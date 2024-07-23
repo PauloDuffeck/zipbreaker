@@ -1,0 +1,213 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import itertools
+import pyzipper
+import sys
+import termcolor
+import os
+import curses
+import time
+import threading
+import rarfile
+
+from pynput import keyboard
+
+from termcolor import colored
+
+interrupted_attack = False
+password = ''  # Global variable to store the found password
+
+def on_release(key):
+    global interrupted_attack
+    try:
+        if key == keyboard.Key.esc:
+            interrupted_attack = True
+            return False
+    except AttributeError:
+        pass
+
+def start_listener():
+    # Start the listener in a separate thread
+    with keyboard.Listener(on_release=on_release) as listener:
+        listener.join()
+
+# Function to check if the password is correct
+def isCorrectPassword(file_path, password):
+    extension = os.path.splitext(file_path)[1].lower()
+    if extension == '.zip':
+        try:
+            # Open the zip file
+            with pyzipper.AESZipFile(file_path, 'r') as zip_ref:
+                file_name = zip_ref.namelist()[0]  # Get the first file in the zip
+                with zip_ref.open(file_name, pwd=str.encode(password)) as file:  # Try to open it with the password
+                    file.read(1)  # Read the first byte of the file
+                return True  # Password found
+        except (RuntimeError, pyzipper.BadZipFile, IndexError):
+            return False  # Incorrect password
+    elif extension == '.rar':
+        try:
+            # Open the rar file
+            with rarfile.RarFile(file_path) as rar_ref:
+                file_name = rar_ref.namelist()[0]  # Get the first file in the rar
+                with rar_ref.open(file_name, pwd=password) as file:  # Try to open it with the password
+                    file.read(1)  # Read the first byte of the file
+                return True  # Password found
+        except (rarfile.BadRarFile, rarfile.PasswordRequired):
+            return False  # Incorrect password
+
+time_start = time.time()
+
+def init_bruteforce(stdscr, char_list, minimum_length, max_length, file_path):
+    global password
+    global interrupted_attack
+    a = minimum_length - 1
+    while a <= max_length - 1:
+        a += 1
+        for combination in itertools.product(char_list, repeat=a):
+            password = ''.join(combination)
+            elapsed_time_seconds = time.time() - time_start
+            hours = int(elapsed_time_seconds // 3600)
+            minutes = int((elapsed_time_seconds % 3600) // 60)
+            seconds = int(elapsed_time_seconds % 60)
+            str_output = ('Brute-force attack in progress: ' + str(password) + ' (passwords)\n'
+                          'File: ' + os.path.abspath(file_path) + '\n'
+                          'Elapsed time: ' + str(hours) + ' hours, ' + str(minutes) + ' minutes and ' + str(seconds) + ' seconds\n'
+                          'Press ESC to stop the attack')
+            stdscr.addstr(1, 2, str_output)
+            stdscr.refresh()
+            if interrupted_attack:
+                password = ''
+                return
+            if isCorrectPassword(file_path, password):
+                return
+            else:
+                password = ''
+
+info_text = ("Usage: zipbreaker [options] [minim_length] [max_length_password] [path]\n"
+             "zipbreaker 1.0\n"
+             "\n"
+             "zipbreaker is an simple open-source tool for performing brute-force attacks\n"
+             "on password-protected compressed files (rar and zip).\n"
+             "A brute-force attack consists of trying all possible password combinations\n"
+             "until the correct password is found. Such an attack can\n"
+             "take up to days depending on the complexity of the target file's password and\n"
+             "will require a lot of CPU power.\n"
+             "\n"
+             "Options\n"
+             "\n"
+             "a - try passwords using all possible characters\n"
+             "n - try passwords using only numbers\n"
+             "l - try passwords using only uppercase and lowercase letters\n"
+             "m - try passwords using only letters and numbers\n"
+             "k - try passwords using only letters and special characters\n"
+             "e - use only specific characters of your choice"
+             "\n"
+             "Developer: github.com/PauloDuffeck"
+             )
+
+def main():
+    if not len(sys.argv) >= 5:
+        print(info_text)
+        sys.exit(0)
+    if len(sys.argv) > 6:
+        print(colored('Excessive parameters', 'red'))
+        sys.exit(0)
+
+    numbers = '0123456789'
+    letters = 'QqWwEeRrTtYyUuIiOoPpAaSsDdFfGgHhJjKkLlÇçZzXxCcVvBbNnMm'
+    special_characters = r"""!"#$%&'()*+,-./:;<=>?@[\]^_{|}~"""
+    char_list = ''
+    if sys.argv[1] == 'e':
+        if len(sys.argv) == 6:
+            char_list = sys.argv[5]
+        else:
+            print("You chose option E, but did not specify the characters to include.")
+            sys.exit(0)
+    elif len(sys.argv) == 6:
+        print(colored('Excessive parameters', 'red'))
+        sys.exit(0)
+    elif sys.argv[1] == 'a':
+        char_list = numbers + letters + special_characters
+    elif sys.argv[1] == 'n':
+        char_list = numbers
+    elif sys.argv[1] == 'l':
+        char_list = letters
+    elif sys.argv[1] == 'm':
+        char_list = letters + numbers
+    elif sys.argv[1] == 'k':
+        char_list = letters + special_characters
+    else:
+        print(info_text)
+        sys.exit(0)
+
+    # Check if the minimum password length is provided correctly
+    minimum_length_error = colored('The minimum password length must be an integer greater than zero', 'red')
+    minimum_length = 0
+    try:
+        minimum_length = int(sys.argv[2])
+    except(ValueError):
+        print(minimum_length_error)
+        sys.exit(0)
+    if minimum_length <= 0:
+        print(minimum_length_error)
+        sys.exit(0)
+
+    # Check if the maximum password length is provided correctly.
+    max_length_error = colored('The maximum password length must be an integer greater than zero', 'red')
+    max_length = 0
+    try:
+        max_length = int(sys.argv[3])
+    except(ValueError):
+        print(max_length_error)
+        sys.exit(0)
+    if max_length <= 0:
+        print(max_length_error)
+        sys.exit(0)
+
+    # Check if the provided directory and file are valid
+    zip_file_path = sys.argv[4]
+    file_error = colored('File not found', 'red')
+    time_start = 0
+    end_time = 0
+    if not os.path.isfile(zip_file_path):
+        print(file_error)
+        sys.exit(0)
+    extension = os.path.splitext(zip_file_path)[1].lower()
+    if extension != '.zip' and extension != '.rar':
+        print(colored('Zipbreaker only supports .zip and .rar files', 'red'))
+        sys.exit(0)
+
+    listener_thread = threading.Thread(target=start_listener)
+    listener_thread.start()
+    time_start = time.time()
+    curses.wrapper(init_bruteforce, char_list, minimum_length, max_length, zip_file_path)
+    end_time = time.time()
+    elapsed_time_seconds = end_time - time_start
+    # Convert the elapsed time to hours, minutes, and seconds
+    hours = int(elapsed_time_seconds // 3600)
+    minutes = int((elapsed_time_seconds % 3600) // 60)
+    seconds = int(elapsed_time_seconds % 60)
+    global password
+    global interrupted_attack
+    if interrupted_attack:
+        print('The brute-force attack was interrupted')
+        sys.exit(0)
+    if password == '':
+        print(colored('The password was not found', 'red'))
+    else:
+        file_name = os.path.basename(zip_file_path)
+        save_path = zip_file_path + '.password.txt'
+        print(colored('Password found: ', 'green') + password)
+        with open(save_path, 'w') as file:
+            # Write the content to the file
+            file.write('File name: ' + file_name + "\nPassword: " + str(password) + "\n"
+                       'Elapsed time: ' + str(hours) + ' hours, ' + str(minutes) + ' minutes and ' + str(seconds) + ' seconds')
+        if os.path.isfile(save_path):
+            print('Password saved in:\n' + colored(os.path.abspath(save_path), 'yellow'))
+        else:
+            print('There was an error saving the password in:\n' + colored(os.path.abspath(save_path), 'red'))
+    print(f'Execution time: {hours} hours, {minutes} minutes and {seconds} seconds')
+
+if __name__ == '__main__':
+    main()

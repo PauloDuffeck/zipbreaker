@@ -1,0 +1,10 @@
+Package: zipbreaker
+Version: 1.0
+Section: base
+Priority: optional
+Architecture: all
+Depends: python3, python3-pip, unrar
+Maintainer: Paulo Duffeck <duffeck_developer@outlook.com>
+Description: A simple brute-force tool.
+ Zipbreaker is an simple open source tool for performing brute-force attacks
+ on password-protected compressed files(rar and zip).
